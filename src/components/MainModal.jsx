@@ -9,17 +9,18 @@ import useData from './contexts/useData';
 import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, query, updateDoc, where } from 'firebase/firestore';
 import TimeSelect from './snippets/TimeSelect';
 import ColorRadioButton from './snippets/colorRadioButton';
+import { toast, confirmToast } from './snippets/toast';
 
 const MainModal = () => {
   const { isOpen, render, setRender, setIsOpen, fireStore, selectedEvent, locations, setSelectedEvent, setMyEvents } = useData();
   const colors = ["red", "orange", "yellow", "green", "blue", "indigo", "purple"];
 
-    const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState({
     title: '',
     start: '',
     end: '',
     location: '',
-    color:"",
+    color: "",
     description: '',
     organizer: '',
     startTime: '',
@@ -27,7 +28,7 @@ const MainModal = () => {
   });
   useEffect(() => {
     if (selectedEvent) {
-      const { title, start, end, locationId, resourceId, description, organizer,color } = selectedEvent;
+      const { title, start, end, locationId, resourceId, description, organizer, color } = selectedEvent;
       const selectedLocation = locations.find((e) => e.id === (locationId || resourceId));
 
       setFormData(prevFormData => ({
@@ -60,7 +61,7 @@ const MainModal = () => {
   };
 
   const saveEvent = async () => {
-    debugger
+    // debugger
     if (!selectedEvent) return;
 
     const { title, start, end, location, description, organizer, startTime, endTime } = formData;
@@ -92,6 +93,7 @@ const MainModal = () => {
 
     setRender(!render);
     setIsOpen(false);
+    toast(1500, "New event added");
   };
 
   const getLocationFromFirestore = async (locationName) => {
@@ -108,18 +110,23 @@ const MainModal = () => {
   const deleteEvent = async () => {
     if (!selectedEvent) return;
 
-    const eventRef = doc(fireStore, 'events', selectedEvent.id);
-    const locationId = selectedEvent?.locationId;
-    await deleteDoc(eventRef);
-    setMyEvents(prevEvents => prevEvents.filter(e => e.id !== selectedEvent.id));
-    const eventsCollection = collection(fireStore, 'events');
-    const querySnapshot = await getDocs(query(eventsCollection, where('location', '==', locationId)));
+    const result = await confirmToast("Delete Event", "Are you sure you want to delete this event?", "Delete");
 
-    if (querySnapshot.empty) {
-      await deleteLocation(locationId);
+    if (result) {
+      const eventRef = doc(fireStore, 'events', selectedEvent.id);
+      const locationId = selectedEvent?.locationId;
+      await deleteDoc(eventRef);
+      setMyEvents(prevEvents => prevEvents.filter(e => e.id !== selectedEvent.id));
+      const eventsCollection = collection(fireStore, 'events');
+      const querySnapshot = await getDocs(query(eventsCollection, where('location', '==', locationId)));
+
+      if (querySnapshot.empty) {
+        await deleteLocation(locationId);
+      }
+
+      toast(1500, "Event Deleted");
+      setIsOpen(false);
     }
-
-    setIsOpen(false);
   };
 
   const deleteLocation = async (locationId) => {
@@ -135,48 +142,45 @@ const MainModal = () => {
       type: "edit"
     }));
   };
+  // Update Event
   const updateEvent = async () => {
     if (!selectedEvent) return;
 
-    const { title, start, end, description, location, organizer, startTime, endTime,color } = formData;
+    const result = await confirmToast("Update Event", "Are you sure you want to update this event?", "Update");
+    if (result) {
+      const { title, start, end, description, location, organizer, startTime, endTime, color } = formData;
+      const formattedStartDate = moment(`${start} ${startTime}`, 'YYYY-MM-DD HH:mm').toDate();
+      const formattedEndDate = moment(`${end} ${endTime}`, 'YYYY-MM-DD HH:mm').toDate();
 
-    const formattedStartDate = moment(`${start} ${startTime}`, 'YYYY-MM-DD HH:mm').toDate();
-    const formattedEndDate = moment(`${end} ${endTime}`, 'YYYY-MM-DD HH:mm').toDate();
+      let locationId = locations?.find((e) => e.name === location)?.id;
+      if (!locationId) {
+        const newLocationRef = await addLocationToFirestore(location);
+        locationId = newLocationRef.id;
+      }
 
-    let locationId = locations?.find((e) => e.name === location)?.id;
-    if (!locationId) {
+      const updatedEvent = {
+        title,
+        start: formattedStartDate,
+        end: formattedEndDate,
+        locationId,
+        description,
+        organizer,
+        color,
 
-      const newLocationRef = await addLocationToFirestore(location);
-      locationId = newLocationRef.id;
+      };
 
-    }
-
-    const updatedEvent = {
-      title,
-      start: formattedStartDate,
-      end: formattedEndDate,
-      locationId,
-      description,
-      organizer,
-      color,
-
-    };
-
-    try {
-      const eventRef = doc(fireStore, 'events', selectedEvent.id);
-      await updateDoc(eventRef, updatedEvent);
-
-
-
-      setSelectedEvent({
-        type: selectedEvent.type,        ...updatedEvent
-      });
-
-      setIsOpen(false);
-      setRender(!render);
-
-    } catch (error) {
-      console.error('Error updating event:', error);
+      try {
+        const eventRef = doc(fireStore, 'events', selectedEvent.id);
+        await updateDoc(eventRef, updatedEvent);
+        setSelectedEvent({
+          type: selectedEvent.type, ...updatedEvent
+        });
+        toast(1500, "Event Updated");
+        setIsOpen(false);
+        setRender(!render);
+      } catch (error) {
+        console.error('Error updating event:', error);
+      }
     }
   };
 
@@ -225,28 +229,28 @@ const MainModal = () => {
   return (
 
     <Modal title={`${selectedEvent?.type === "add" ? "Add Event" : selectedEvent?.type === "edit" ? "Edit Event" : selectedEvent?.title}`} isOpen={isOpen} onClose={() => { setIsOpen(false); setSelectedEvent(null); setFormData({ title: '', start: '', end: '', location: '', description: '', organizer: '', startTime: '', endTime: '' }) }} actions={selectedEvent?.type === "add" ? <button className='px-2 py-1 bg-blue-500 rounded text-white' onClick={saveEvent}>Save</button> : selectedEvent?.type === "edit" && <button className='px-2 py-1 bg-blue-500 rounded text-white' onClick={updateEvent}>Update</button>} >
-{
-  selectedEvent?.type!=="event" && <div className='flex justify-between items-center mb-2'>
-     <label
-                className="block mb-2 text-sm font-medium text-gray-900 dark:text-white"
-            >
-              Select Color
-            </label>
-     <div className="flex items-center gap-2">
-  {
-    colors?.map((color) => {
-      return (
-        <ColorRadioButton key={color} color={color}
-          selectedColor={formData?.color}
-          onChange={handleChange} />
-      )
-    })
-  }
+      {
+        selectedEvent?.type !== "event" && <div className='flex justify-between items-center mb-2'>
+          <label
+            className="block mb-2 text-sm font-medium text-gray-900 dark:text-white"
+          >
+            Select Color
+          </label>
+          <div className="flex items-center gap-2">
+            {
+              colors?.map((color) => {
+                return (
+                  <ColorRadioButton key={color} color={color}
+                    selectedColor={formData?.color}
+                    onChange={handleChange} />
+                )
+              })
+            }
 
 
-</div>
-  </div>
-}
+          </div>
+        </div>
+      }
       {
         selectedEvent?.type !== "event" ? <div className='grid grid-cols-2 gap-4'>
           {
